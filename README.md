@@ -407,6 +407,8 @@ The system follows a modular architecture:
 ### **🔄 Workflow (Example)**
 
 - ➢ User uploads content & style → selects scenario → platform fetches recommendation → user runs either single method or "Compare Both" → backend calls NST engine(s) → outputs and metrics returned → UI displays results and explanation.
+![Workflow](workflow.png)
+![State Transition](state_transition.png)
 
 ---
 
@@ -437,18 +439,25 @@ No personal or sensitive data is required; only technical metadata and non-ident
 ## 12. 📐 Technical Workflow Diagrams
 
 ### 12.1 🔄 State Transition Diagram
+![State Transition](state_transition.png)
 
 ### 12.2 🔁 Sequence Diagram
+![Sequence](sequence.png)
 
 ### 12.3 👤 Use Case Diagram
+![Use Case](use_case.png)
 
 ### 12.4 📊 Data Flow Diagram
+![Data Flow](data_flow.png)
 
 ### 12.5 🗂️ ER Diagram
+![ER](er.png)
 
 ### 12.6 ⚙️ Technical Workflow Diagram
+![Technical Workflow](technical_workflow.png)
 
 ### 12.7 🏛️ Work Architecture Diagram
+![Work Architecture](work_architecture.png)
 
 ---
 
