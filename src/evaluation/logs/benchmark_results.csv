@@ -1,0 +1,3 @@
+run_id,timestamp,method,resolution,runtime_ms,style_loss,content_loss,notes
+run_1772906013,2026-03-07T23:23:33.350192,fast,512,118.5,0.0421,0.0113,test run
+run_1772906013,2026-03-07T23:23:33.364929,optimization,512,4200.0,0.0198,0.0089,test run
