@@ -1,0 +1,33 @@
+# StyleSense Project Config
+project:
+  name: StyleSense
+  version: v0.1
+  team: T59
+
+model:
+  num_classes: 10
+  img_size: 224
+  feature_layers: [block1, block2, block3, block4]
+
+training:
+  batch_size: 32
+  learning_rate: 0.001
+  epochs: 20
+  device: cuda   # change to cpu if no GPU
+
+nst:
+  optimization:
+    iterations: 500
+    style_weight: 1000000
+    content_weight: 1
+    tv_weight: 0.001
+  fast:
+    epochs: 2
+    style_weight: 100000
+    content_weight: 1
+
+paths:
+  data_dir: data/
+  checkpoints: checkpoints/
+  logs: logs/
+  outputs: outputs/
