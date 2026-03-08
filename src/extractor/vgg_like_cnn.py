@@ -16,28 +16,28 @@ class VGGLikeExtractor(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2)   # 112x112
+            nn.MaxPool2d(2, 2)
         )
         self.block2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2)   # 56x56
+            nn.MaxPool2d(2, 2)
         )
         self.block3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2)   # 28x28
+            nn.MaxPool2d(2, 2)
         )
         self.block4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2)   # 14x14
+            nn.MaxPool2d(2, 2)
         )
 
         self.classifier = nn.Sequential(
@@ -73,10 +73,8 @@ class VGGLikeExtractor(nn.Module):
 if __name__ == "__main__":
     model = VGGLikeExtractor(num_classes=10)
     dummy = torch.randn(1, 3, 224, 224)
-
     out = model(dummy)
-    print("Output shape:", out.shape)   # Expected: torch.Size([1, 10])
-
+    print("Output shape:", out.shape)
     feats = model.get_feature_maps(dummy)
     for k, v in feats.items():
         print(f"{k}: {v.shape}")
