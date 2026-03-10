@@ -50,13 +50,19 @@ def validate(model, loader, criterion, device):
 
 def main():
     # ── Config ──────────────────────────────────────────────────────────────
-    DATA_DIR      = "../../data"          # update to your dataset path
+    DATA_DIR    = "../../data"
+    NUM_CLASSES = 10
+    BATCH_SIZE  = 128      # fast
+    EPOCHS      = 5       # ~35 mins, enough for NST
+    IMG_SIZE    = 32     # original rakhte hain (111M model ke liye)
+
+    # DATA_DIR      = "../../data"          # update to your dataset path
     CHECKPT_DIR   = "../../checkpoints"
-    NUM_CLASSES   = 10                    # update based on your dataset
-    BATCH_SIZE    = 32
+    # NUM_CLASSES   = 10                    # update based on your dataset
+    # BATCH_SIZE    = 32
     LR            = 0.001
-    EPOCHS        = 2 #20
-    IMG_SIZE      = 224
+    # EPOCHS        = 2 #20
+    # IMG_SIZE      = 224
     DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     os.makedirs(CHECKPT_DIR, exist_ok=True)
@@ -66,18 +72,49 @@ def main():
     import torchvision
     import torchvision.transforms as transforms
 
+    print("Loading CIFAR-10 into RAM...")
+
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                            std=[0.229, 0.224, 0.225])
     ])
-    train_data = torchvision.datasets.CIFAR10('../../data', train=True,
-                                           download=True, transform=transform)
-    val_data   = torchvision.datasets.CIFAR10('../../data', train=False,
-                                           download=True, transform=transform)
-    from torch.utils.data import DataLoader
-    train_loader = DataLoader(train_data, batch_size=32, shuffle=True,  num_workers=2)
-    val_loader   = DataLoader(val_data,   batch_size=32, shuffle=False, num_workers=2)
+
+    train_raw = torchvision.datasets.CIFAR10('../../data', train=True,
+                                            download=True, transform=transform)
+    val_raw   = torchvision.datasets.CIFAR10('../../data', train=False,
+                                            download=True, transform=transform)
+
+    # Poora dataset ek baar RAM mein load karo
+    train_data = torch.stack([train_raw[i][0] for i in range(len(train_raw))])
+    train_lbls = torch.tensor([train_raw[i][1] for i in range(len(train_raw))])
+    val_data   = torch.stack([val_raw[i][0] for i in range(len(val_raw))])
+    val_lbls   = torch.tensor([val_raw[i][1] for i in range(len(val_raw))])
+
+    print(f"Train: {train_data.shape} | Val: {val_data.shape}")
+
+    from torch.utils.data import TensorDataset, DataLoader
+    train_loader = DataLoader(TensorDataset(train_data, train_lbls),
+                            batch_size=128, shuffle=True,  num_workers=0)
+    val_loader   = DataLoader(TensorDataset(val_data, val_lbls),
+                            batch_size=128, shuffle=False, num_workers=0)
+
+    
+    # import torchvision
+    # import torchvision.transforms as transforms
+
+    # transform = transforms.Compose([
+        # transforms.Resize((224, 224)),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
+    # ])
+    # train_data = torchvision.datasets.CIFAR10('../../data', train=True,
+    #                                        download=True, transform=transform)
+    # val_data   = torchvision.datasets.CIFAR10('../../data', train=False,
+    #                                        download=True, transform=transform)
+    # from torch.utils.data import DataLoader
+    # train_loader = DataLoader(train_data, batch_size=32, shuffle=True,  num_workers=2)
+    # val_loader   = DataLoader(val_data,   batch_size=32, shuffle=False, num_workers=2)
 
 
     # ── Model ───────────────────────────────────────────────────────────────

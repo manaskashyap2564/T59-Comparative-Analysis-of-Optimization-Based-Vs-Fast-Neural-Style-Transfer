@@ -36,8 +36,8 @@ def load_extractor(checkpoint_path: str, num_classes: int = 10, device: str = "c
 
 if __name__ == "__main__":
     # Smoke test (update path)
-    # model, info = load_extractor("../../checkpoints/best_extractor.pth")
-    # feats = model.get_feature_maps(torch.randn(1, 3, 224, 224))
-    # for k, v in feats.items():
-    #     print(f"{k}: {v.shape}")
-    print("load_checkpoint.py ready. Provide checkpoint path to test.")
+    model, info = load_extractor("../../checkpoints/best_extractor.pth")
+    feats = model.get_feature_maps(torch.randn(1, 3, 224, 224))
+    for k, v in feats.items():
+        print(f"{k}: {v.shape}")
+    # print("load_checkpoint.py ready. Provide checkpoint path to test.")
