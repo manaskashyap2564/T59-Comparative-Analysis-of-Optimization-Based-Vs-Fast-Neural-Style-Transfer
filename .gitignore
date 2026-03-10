@@ -1,1 +1,39 @@
-data\cifar-10-python.tar.gz
+# Large data files
+data/cifar-10-python.tar.gz
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+nstylesense_env/
+stylesense_env/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Checkpoints (if large)
+# checkpoints/*.pth
+# checkpoints/*.pt
+
+*.pth
+*.onnx
+# datasets/
+# outputs/
