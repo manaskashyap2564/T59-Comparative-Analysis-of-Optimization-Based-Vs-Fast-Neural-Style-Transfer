@@ -37,3 +37,5 @@ Thumbs.db
 *.onnx
 # datasets/
 # outputs/
+frontend/node_modules/
+frontend/package-lock.json
