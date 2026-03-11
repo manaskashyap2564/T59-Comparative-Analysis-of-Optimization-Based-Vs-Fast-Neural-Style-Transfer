@@ -638,6 +638,31 @@ No personal or sensitive data is required; only technical metadata and non-ident
 
 ---
 
+## 📊 Key Results (Day 5 — March 11, 2026)
+
+| Metric         | Fast NST  | Opt NST   | Winner              |
+|----------------|-----------|-----------|---------------------|
+| Runtime        | 5.2ms     | 788ms     | ⚡ Fast (150x)      |
+| Style Loss     | 0.031587  | 0.008708  | 🎨 Opt (4x better)  |
+| Content Loss   | 0.000147  | 0.000334  | ✅ Fast (2x better) |
+| TV Loss        | 0.082963  | 0.359627  | ✅ Fast (smoother)  |
+
+### Core Finding:
+> Fast NST is **150x faster** than Optimization-based NST (5.2ms vs 788ms),
+> with better content preservation (2x lower content loss) and smoother output
+> (4x lower TV loss). Optimization NST achieves **4x better style fidelity**
+> at the cost of speed — ideal for high-quality offline artwork generation.
+
+### Setup:
+- Extractor   : Custom VGG-like CNN, 111M params, Val Acc = 71.80%
+- Fast NST    : ResNet-style Generator, 1.7M params, trained 2 epochs
+- Dataset     : CIFAR-10 (50k images, RAM-loaded)
+- Style Image : Van Gogh — Starry Night
+- Hardware    : NVIDIA GPU (CUDA), RTX 3050
+- Framework   : PyTorch 2.x
+
+---
+
 ## 🎉 End of Synopsis
 
 **✨ StyleSense Team (T59)**  
