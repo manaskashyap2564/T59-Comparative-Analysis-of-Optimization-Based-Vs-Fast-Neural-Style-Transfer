@@ -1,0 +1,37 @@
+{
+  "project": "T59 - StyleSense NST Comparison",
+  "team": ["Manas Kashyap", "Shubhansh Gupta"],
+  "date": "2026-03-11",
+  "extractor": {
+    "architecture": "VGG-like CNN",
+    "params": 111655498,
+    "val_accuracy": 71.80,
+    "epochs": 5,
+    "dataset": "CIFAR-10",
+    "checkpoint": "checkpoints/best_extractor.pth"
+  },
+  "fast_nst": {
+    "architecture": "ResNet-style Generator",
+    "params": 1679235,
+    "epochs_trained": 2,
+    "style_image": "Van Gogh Starry Night",
+    "checkpoint": "checkpoints/fast_nst_best.pth"
+  },
+  "comparison_results": {
+    "fast_nst": {
+      "runtime_ms": 5.2,
+      "content_loss": 0.000147,
+      "style_loss": 0.031587,
+      "tv_loss": 0.082963
+    },
+    "optimization_nst": {
+      "runtime_ms": 788.0,
+      "iterations": 100,
+      "content_loss": 0.000334,
+      "style_loss": 0.008708,
+      "tv_loss": 0.359627
+    },
+    "speedup": "150x",
+    "core_finding": "Fast NST 150x faster, Opt NST 4x better style fidelity"
+  }
+}
