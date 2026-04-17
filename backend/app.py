@@ -245,3 +245,10 @@ if __name__ == "__main__":
     print("  GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
     print("  Starting server on http://localhost:5000\n")
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+# Shortcut — bina /api prefix ke bhi kaam kare
+from flask import redirect
+@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
+def health_shortcut():
+    return health()

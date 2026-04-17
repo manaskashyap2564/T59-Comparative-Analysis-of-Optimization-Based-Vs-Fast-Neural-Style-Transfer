@@ -419,7 +419,7 @@ export default function App() {
   const [backendStatus, setStatus] = useState("checking");
 
   useEffect(() => {
-    fetch("http://localhost:5000/health")
+    fetch("http://localhost:5000/api/health")
       .then(r => r.json())
       .then(d => setStatus(d.status === "ok" ? "online" : "offline"))
       .catch(() => setStatus("offline"));
