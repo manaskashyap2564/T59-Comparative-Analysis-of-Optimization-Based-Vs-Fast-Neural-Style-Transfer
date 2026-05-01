@@ -28,7 +28,9 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          pip install flask flask-cors PyJWT pytest requests
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest
 
       - name: Run pytest
         run: |
