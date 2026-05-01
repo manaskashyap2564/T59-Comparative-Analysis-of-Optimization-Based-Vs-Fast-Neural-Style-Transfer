@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState } from 'react';
 import axios from 'axios';
 
+const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000') + '/api';
+
+
+
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
@@ -11,8 +15,11 @@ export function AuthProvider({ children }) {
   });
 
   const login = async (username, password) => {
-    const res = await axios.post('http://localhost:5000/api/login',
-      { username, password });
+    // inside login function:
+      const res = await axios.post(`${API_BASE}/login`, {
+        username,
+        password,
+      });
     const userData = {
       username: res.data.username,
       role:     res.data.role,       // "user" ya "developer"

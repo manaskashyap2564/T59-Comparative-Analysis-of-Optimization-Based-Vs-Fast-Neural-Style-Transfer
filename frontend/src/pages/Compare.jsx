@@ -17,6 +17,7 @@ export default function Compare({ navigate }) {
   const [speedup,    setSpeedup]    = useState(null);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
+  const API_ROOT = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     listStyles().then(r => setPresets(r.data.presets)).catch(() => {});
@@ -108,7 +109,7 @@ export default function Compare({ navigate }) {
 
           {/* Preset Preview */}
           {!useCustom && (
-            <img src={'http://localhost:5000/api/styles/' + lastStyleId}
+            <img src={API_ROOT + '/api/styles/'+ lastStyleId}
               alt="style preview"
               style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 6,
   background: '#111', padding: 4 }} />
@@ -175,8 +176,8 @@ export default function Compare({ navigate }) {
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         {[
           { label: '[I] Input (Content)', url: previewUrl, time: null, name: 'input' },
-          { label: '[F] Fast NST Output', url: fastResult ? 'http://localhost:5000' + fastResult.output_url : null, time: fastResult?.time_seconds, name: 'fast' },
-          { label: '[O] Optimization NST Output', url: optResult ? 'http://localhost:5000' + optResult.output_url : null, time: optResult?.time_seconds, name: 'opt' },
+          { label: '[F] Fast NST Output', url: fastResult ? API_ROOT + fastResult.output_url : null, time: fastResult?.time_seconds, name: 'fast' },
+          { label: '[O] Optimization NST Output', url: optResult ? API_ROOT + optResult.output_url : null, time: optResult?.time_seconds, name: 'opt' },
         ].map(({ label, url, time }) => (
           <div key={label} style={{ flex: 1, minWidth: 220, background: theme.bg.card,
             borderRadius: theme.radius.md, padding: 16, border: '1px solid ' + theme.colors.border,
