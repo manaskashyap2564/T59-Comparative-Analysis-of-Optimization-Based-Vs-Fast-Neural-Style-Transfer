@@ -1,8 +1,15 @@
 import pytest
 import sys
 import os
+from unittest.mock import patch, MagicMock
 
-# backend/app.py ko import karne ke liye path set karo
+# Heavy ML imports ko mock karo BEFORE app import
+sys.modules['torch'] = MagicMock()
+sys.modules['torchvision'] = MagicMock()
+sys.modules['optimizer_nst'] = MagicMock()
+sys.modules['inference'] = MagicMock()
+sys.modules['load_checkpoint'] = MagicMock()
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app import app
@@ -10,7 +17,6 @@ from app import app
 @pytest.fixture
 def client():
     app.config['TESTING'] = True
-    app.config['JWT_SECRET_KEY'] = 'test-secret-key'
     with app.test_client() as client:
         yield client
 
@@ -26,7 +32,7 @@ def test_recommend_endpoint(client):
     response = client.get('/api/recommend')
     assert response.status_code == 200
     data = response.get_json()
-    assert 'recommendation' in data
+    assert 'recommended_method' in data
 
 # ── Test 3: Stylize bina auth ke reject ho ───────────
 def test_stylize_requires_auth(client):
@@ -35,5 +41,5 @@ def test_stylize_requires_auth(client):
 
 # ── Test 4: Benchmark bina auth ke reject ho ─────────
 def test_benchmark_requires_auth(client):
-    response = client.get('/api/benchmark')
+    response = client.post('/api/benchmark')
     assert response.status_code == 401
