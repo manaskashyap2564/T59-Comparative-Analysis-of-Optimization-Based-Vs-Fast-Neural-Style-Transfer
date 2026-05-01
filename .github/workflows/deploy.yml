@@ -10,7 +10,6 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: t59-nst-backend
   REGION: us-central1
-  IMAGE: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/t59-backend/t59-nst-backend
 
 jobs:
 
@@ -60,20 +59,22 @@ jobs:
 
       - name: Build Docker image
         run: |
-          SHA_LOWER=$(echo $GITHUB_SHA | tr '[:upper:]' '[:lower:]')
-          docker build -t $IMAGE:${SHA_LOWER} -t $IMAGE:latest -f backend/Dockerfile .
+          PROJECT=$(echo "${{ secrets.GCP_PROJECT_ID }}" | tr '[:upper:]' '[:lower:]')
+          SHA=$(echo "$GITHUB_SHA" | tr '[:upper:]' '[:lower:]')
+          IMAGE="us-central1-docker.pkg.dev/${PROJECT}/t59-backend/t59-nst-backend"
+          echo "IMAGE_TAG=${IMAGE}:${SHA}" >> $GITHUB_ENV
+          echo "IMAGE_LATEST=${IMAGE}:latest" >> $GITHUB_ENV
+          docker build -t ${IMAGE}:${SHA} -t ${IMAGE}:latest -f backend/Dockerfile .
 
       - name: Push Docker image
         run: |
-          SHA_LOWER=$(echo $GITHUB_SHA | tr '[:upper:]' '[:lower:]')
-          docker push $IMAGE:${SHA_LOWER}
-          docker push $IMAGE:latest
+          docker push ${{ env.IMAGE_TAG }}
+          docker push ${{ env.IMAGE_LATEST }}
 
       - name: Deploy to Cloud Run
         run: |
-          SHA_LOWER=$(echo $GITHUB_SHA | tr '[:upper:]' '[:lower:]')
           gcloud run deploy $SERVICE_NAME \
-            --image $IMAGE:${SHA_LOWER} \
+            --image ${{ env.IMAGE_TAG }} \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \
@@ -103,10 +104,8 @@ jobs:
       - name: Deploy to Vercel
         run: |
           npm i -g vercel@latest
-          vercel --token=${{ secrets.VERCEL_TOKEN }} \
-            --yes \
-            --prod \
-            --cwd ./frontend
+          cd frontend
+          vercel --token=${{ secrets.VERCEL_TOKEN }} --yes --prod
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
