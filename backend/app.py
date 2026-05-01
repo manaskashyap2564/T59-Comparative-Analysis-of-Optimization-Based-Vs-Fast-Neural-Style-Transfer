@@ -244,6 +244,7 @@ def get_result(filename):
 
 # ── Benchmark ─────────────────────────────────────────────────
 @app.route("/api/benchmark", methods=["POST"])
+@token_required
 def benchmark():
     """
     Runs both NST on provided image at multiple resolutions.

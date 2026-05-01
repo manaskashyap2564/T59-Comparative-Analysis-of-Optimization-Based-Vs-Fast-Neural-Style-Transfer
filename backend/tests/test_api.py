@@ -3,8 +3,12 @@ import sys
 import os
 from unittest.mock import patch, MagicMock
 
-# Heavy ML imports ko mock karo BEFORE app import
-sys.modules['torch'] = MagicMock()
+# Mock karo BEFORE app import
+mock_torch = MagicMock()
+mock_torch.cuda.is_available.return_value = False          # bool return karo
+mock_torch.cuda.get_device_name.return_value = "cpu"       # string return karo
+
+sys.modules['torch'] = mock_torch
 sys.modules['torchvision'] = MagicMock()
 sys.modules['optimizer_nst'] = MagicMock()
 sys.modules['inference'] = MagicMock()
