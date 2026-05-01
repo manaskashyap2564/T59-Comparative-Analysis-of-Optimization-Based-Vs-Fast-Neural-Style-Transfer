@@ -42,3 +42,4 @@ frontend/package-lock.json
 outputs/api_results/
 outputs/uploads/
 outputs/comparison/*.jpg
+gcp-key.json
