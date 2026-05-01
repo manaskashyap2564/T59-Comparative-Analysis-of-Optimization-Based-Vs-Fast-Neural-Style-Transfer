@@ -1,7 +1,7 @@
 ﻿# flask
 # flask-cors
-# torch
-# torchvision
+torch
+torchvision
 # pillow
 # PyJWT
 # gunicorn
@@ -15,5 +15,5 @@ PyJWT>=2.8.0
 Pillow>=10.0.0
 pytest>=9.0.0
 gunicorn>=21.0.0
-torch==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision==0.16.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# torch==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# torchvision==0.16.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
