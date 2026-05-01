@@ -4,5 +4,6 @@ torch
 torchvision
 pillow
 PyJWT
-requests
 gunicorn
+requests
+flask-limiter 

@@ -57,9 +57,9 @@ def download_style_image(save_path):
 
 def train_fast_nst(
     style_path     = "../../outputs/test_imgs/vangogh_style.jpg",
-    checkpoint     = "../../checkpoints/best_extractor.pth",
-    save_dir       = "../../checkpoints",
-    data_dir       = "../../data",
+    checkpoint     = "C:/Users/manas/T59_fresh/checkpoints/best_extractor.pth",
+    save_dir       = "C:/Users/manas/T59_fresh/checkpoints",
+    data_dir       = "C:/Users/manas/T59_fresh/data",
     img_size       = 64,
     batch_size     = 16,
     epochs         = 2,

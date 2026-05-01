@@ -4,6 +4,9 @@ Backend API — StyleSense NST
 
 import os, sys, time, uuid, json
 from flask import Flask, request, jsonify, send_file
+import logging
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from PIL import Image
 import torch
@@ -22,6 +25,26 @@ from load_checkpoint import load_extractor
 
 # ── App Init ──────────────────────────────────────────────────
 app  = Flask(__name__)
+# ── Logging ──────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ── CORS (lock to frontend domain) ───────────────────
+CORS(app, origins=[
+    "http://localhost:3000",
+    os.getenv("FRONTEND_URL", "http://localhost:3000")
+])
+
+# ── Rate Limiting ─────────────────────────────────────
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 CORS(app)
 
 UPLOAD_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/uploads")
@@ -34,7 +57,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 # ── JWT Auth ───────────────────────────────────────────────────
-SECRET_KEY = "stylesense_t59_secret"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "stylesense_t59_secret_dev")
+# # PURANA — ye hata do:
+# SECRET_KEY = "stylesense_t59_secret"
 
 USERS = {
     "user": {"password": "user123", "role": "user"},
@@ -88,6 +113,7 @@ def login():
 # ── Health ────────────────────────────────────────────────────
 @app.route("/api/health", methods=["GET"])
 def health():
+    logger.info("Health check called")   # ← ye line add karo
     return jsonify({
         "status" : "ok",
         "gpu"    : torch.cuda.is_available(),
@@ -97,7 +123,10 @@ def health():
 
 # ── Stylize ───────────────────────────────────────────────────
 @app.route("/api/stylize", methods=["POST"])
+@token_required                              # ← ye line add karo
+@limiter.limit("10 per minute")             # ← ye line add karo
 def stylize():
+    logger.info(f"Stylize request - method: {request.form.get('method', 'both')}")  # ← andar pehli line
     """
     Form-data:
       content_image : file  (required)
@@ -322,7 +351,7 @@ if __name__ == "__main__":
     print("\n  StyleSense Backend API")
     print("  GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
     print("  Starting server on http://localhost:5000\n")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=False, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
 
 # Shortcut — bina /api prefix ke bhi kaam kare
 from flask import redirect
