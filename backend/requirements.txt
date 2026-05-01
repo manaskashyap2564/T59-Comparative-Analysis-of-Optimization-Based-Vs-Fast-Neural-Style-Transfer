@@ -1,19 +1,11 @@
-﻿# flask
-# flask-cors
-# torch
-# torchvision
-# pillow
-# PyJWT
-# gunicorn
-# requests
-# flask-limiter 
-
-flask>=3.0.0
-flask-cors>=4.0.0
-flask-limiter>=3.0.0
-PyJWT>=2.8.0
-Pillow>=10.0.0
-pytest>=9.0.0
-gunicorn>=21.0.0
-torch>=2.0.0
-torchvision>=0.15.0
+﻿flask
+flask-cors
+flask-limiter
+flask-talisman
+PyJWT
+bcrypt
+gunicorn
+pillow
+torch
+torchvision
+pytest                                        

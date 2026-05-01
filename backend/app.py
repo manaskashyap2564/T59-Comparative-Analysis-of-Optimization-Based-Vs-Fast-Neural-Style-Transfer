@@ -1,321 +1,491 @@
-"""
-Backend API — StyleSense NST
-"""
-
-import os, sys, time, uuid, json
-from flask import Flask, request, jsonify, send_file
+import os
+import sys
+import time
+import uuid
 import logging
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from flask_cors import CORS
-from PIL import Image
-import torch
-import io
-import jwt
-from datetime import datetime, timedelta
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-# ── src paths (local dev only, optional on Cloud Run) ─────────
-_base = os.path.dirname(__file__)
-_src  = os.path.join(_base, '..', 'src')
-if os.path.exists(_src):
-    sys.path.append(os.path.join(_src, 'extractor'))
-    sys.path.append(os.path.join(_src, 'nst_optimization'))
-    sys.path.append(os.path.join(_src, 'nst_fast'))
-    sys.path.append(_src)
+import bcrypt
+import jwt
+import torch
+from PIL import Image
+from flask import Flask, jsonify, request, send_file, send_from_directory, g
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 
-# NST modules — only available on lab machine (3060), not Cloud Run
-NST_AVAILABLE = False
-try:
-    from optimizer_nst   import run_optimization_nst
-    from inference       import run_fast_nst
-    from load_checkpoint import load_extractor
-    NST_AVAILABLE = True
-except ImportError:
-    pass  # Cloud Run pe NST nahi hoga — /api/stylize & /api/benchmark 503 return karenge
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
 
-# ── App Init ───────────────────────────────────────────────────
-app = Flask(__name__)
+sys.path.append(str(PROJECT_ROOT / "src" / "nst" / "fast"))
+sys.path.append(str(PROJECT_ROOT / "src" / "nst" / "optimization"))
+sys.path.append(str(PROJECT_ROOT / "src" / "extractor"))
 
-# ── Logging ────────────────────────────────────────────────────
+# Change only these imports if your real function names differ
+from inference import run_fast_nst
+from optimizer_nst import run_optimization_nst
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
+    format="%(asctime)s %(levelname)s %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# ── CORS ───────────────────────────────────────────────────────
-CORS(app, origins=[
-    "http://localhost:3000",
-    "https://t59-comparative-analysis-of-optimiz.vercel.app",
-    os.getenv("FRONTEND_URL", "http://localhost:3000")
-])
+app = Flask(__name__)
 
-# ── Rate Limiting ──────────────────────────────────────────────
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "https://t59-comparative-analysis-of-optimization-based-vs-63hcybggz.vercel.app"
+)
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "stylesense-t59-dev-secret")
+PORT = int(os.getenv("PORT", 5000))
+
+app.config["SECRET_KEY"] = JWT_SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+
+CORS(
+    app,
+    resources={r"/api/*": {"origins": [FRONTEND_URL, "http://localhost:3000"]}},
+    supports_credentials=True
+)
+
+Talisman(
+    app,
+    force_https=False,
+    content_security_policy=None
+)
+
 limiter = Limiter(
-    get_remote_address,
+    key_func=get_remote_address,
     app=app,
     default_limits=["200 per day", "50 per hour"],
     storage_uri="memory://"
 )
 
-UPLOAD_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/uploads")
-RESULT_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/api_results")
-CHECKPT_DIR = os.path.join(os.path.dirname(__file__), "../checkpoints")
-STYLE_IMG   = os.path.join(os.path.dirname(__file__), "../outputs/test_imgs/vangogh_style.jpg")
-PRESET_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/test_imgs")
+UPLOAD_DIR = PROJECT_ROOT / "outputs" / "uploads"
+RESULT_DIR = PROJECT_ROOT / "outputs" / "api_results"
+STYLE_DIR = PROJECT_ROOT / "outputs" / "test_imgs"
+CHECKPOINT_DIR = PROJECT_ROOT / "checkpoints"
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(RESULT_DIR, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── JWT Auth ───────────────────────────────────────────────────
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "stylesense_t59_secret_dev")
+FAST_CKPT = CHECKPOINT_DIR / "nst_epoch2.pth"
+EXTRACTOR_CKPT = CHECKPOINT_DIR / "best_extractor.pth"
+
+STYLE_PRESETS = [
+    {"id": "vangogh", "name": "Van Gogh", "filename": "vangogh_style.jpg"},
+    {"id": "ghibli", "name": "Ghibli", "filename": "ghibli_style.jpg"},
+    {"id": "monalisa", "name": "Mona Lisa", "filename": "monalisa_style.jpg"},
+    {"id": "abstract", "name": "Abstract", "filename": "abstract_style.jpg"},
+    {"id": "vangogh_totoro", "name": "Van Gogh x Totoro", "filename": "vangogh_totoro_style.jpg"},
+]
+STYLE_INDEX = {item["id"]: item for item in STYLE_PRESETS}
+
+
+def json_error(message, status=400):
+    return jsonify({"error": message}), status
+
+
+def device_info():
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_name(0)
+    return "cpu"
+
+
+def hash_from_env(env_name, default_plain):
+    raw = os.getenv(env_name, default_plain).encode("utf-8")
+    return bcrypt.hashpw(raw, bcrypt.gensalt())
+
 
 USERS = {
-    "user": {"password": "user123", "role": "user"},
-    "dev":  {"password": "dev123",  "role": "developer"},
+    "user": {
+        "role": "user",
+        "password_hash": hash_from_env("DEMO_USER_PASSWORD", "user123"),
+    },
+    "dev": {
+        "role": "developer",
+        "password_hash": hash_from_env("DEMO_DEV_PASSWORD", "dev123"),
+    },
 }
 
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not token:
-            return jsonify({"error": "Token missing"}), 401
+
+def create_token(username, role):
+    payload = {
+        "sub": username,
+        "role": role,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=8),
+    }
+    return jwt.encode(payload, app.config["SECRET_KEY"], algorithm="HS256")
+
+
+def token_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return json_error("Missing or invalid Authorization header", 401)
+
+        token = auth_header.split(" ", 1)[1].strip()
         try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            request.user_role = data['role']
-        except:
-            return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-    return decorated
+            payload = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+            g.user = {
+                "username": payload.get("sub"),
+                "role": payload.get("role"),
+            }
+        except jwt.ExpiredSignatureError:
+            return json_error("Token expired", 401)
+        except jwt.InvalidTokenError:
+            return json_error("Invalid token", 401)
 
-def dev_only(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            if data['role'] != 'developer':
-                return jsonify({"error": "Developer only"}), 403
-            request.user_role = data['role']
-        except:
-            return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-    return decorated
+        return fn(*args, **kwargs)
 
-# ── Login ──────────────────────────────────────────────────────
-@app.route("/api/login", methods=["POST"])
-def login():
-    data     = request.get_json()
-    username = data.get("username", "")
-    password = data.get("password", "")
-    user     = USERS.get(username)
-    if not user or user["password"] != password:
-        return jsonify({"error": "Invalid credentials"}), 401
-    token = jwt.encode({
-        "username": username,
-        "role":     user["role"],
-        "exp":      datetime.utcnow() + timedelta(hours=8)
-    }, SECRET_KEY, algorithm="HS256")
-    return jsonify({"token": token, "role": user["role"], "username": username})
+    return wrapper
 
-# ── Health ─────────────────────────────────────────────────────
-@app.route("/health",     methods=["GET"])
+
+def save_rgb_image(file_storage, out_path: Path):
+    image = Image.open(file_storage.stream).convert("RGB")
+    image.save(out_path)
+    return out_path
+
+
+def resolve_style_path(style_id: str) -> Path:
+    meta = STYLE_INDEX.get(style_id)
+    if not meta:
+        raise ValueError(f"Invalid style id: {style_id}")
+
+    style_path = STYLE_DIR / meta["filename"]
+    if not style_path.exists():
+        raise FileNotFoundError(f"Style file not found for {style_id}: {style_path}")
+
+    return style_path
+
+
+def run_fast_wrapper(content_path: Path, style_path: Path, output_path: Path, img_size: int):
+    t0 = time.time()
+
+    meta = run_fast_nst(
+        content_path=str(content_path),
+        style_path=str(style_path),
+        checkpoint=str(FAST_CKPT),
+        extractor_ckpt=str(EXTRACTOR_CKPT),
+        output_path=str(output_path),
+        imgsize=img_size,
+    )
+
+    if not output_path.exists():
+        raise RuntimeError("Fast NST did not produce an output image")
+
+    elapsed = round(time.time() - t0, 4)
+    meta = meta if isinstance(meta, dict) else {}
+
+    if "runtime_ms" in meta:
+        elapsed = round(float(meta["runtime_ms"]) / 1000.0, 4)
+
+    return {
+        "method": "fast",
+        "output_url": f"/api/result/{output_path.name}",
+        "time_seconds": elapsed,
+        "metrics": meta,
+    }
+
+
+def run_opt_wrapper(content_path: Path, style_path: Path, output_path: Path, img_size: int, iterations: int):
+    t0 = time.time()
+
+    meta = run_optimization_nst(
+        content_path=str(content_path),
+        style_path=str(style_path),
+        checkpoint=str(EXTRACTOR_CKPT),
+        output_path=str(output_path),
+        imgsize=img_size,
+        iterations=iterations,
+        save_every=iterations,
+    )
+
+    if not output_path.exists():
+        raise RuntimeError("Optimization NST did not produce an output image")
+
+    elapsed = round(time.time() - t0, 4)
+    meta = meta if isinstance(meta, dict) else {}
+
+    if "runtime_ms" in meta:
+        elapsed = round(float(meta["runtime_ms"]) / 1000.0, 4)
+
+    return {
+        "method": "optimization",
+        "output_url": f"/api/result/{output_path.name}",
+        "time_seconds": elapsed,
+        "metrics": meta,
+    }
+
+
+@app.before_request
+def log_request():
+    logger.info("REQ %s %s ip=%s", request.method, request.path, request.remote_addr)
+
+
+@app.after_request
+def log_response(response):
+    logger.info("RES %s %s status=%s", request.method, request.path, response.status_code)
+    return response
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
-    logger.info("Health check called")
-    return jsonify({
-        "status"       : "ok",
-        "nst_available": NST_AVAILABLE,
-        "gpu"          : torch.cuda.is_available(),
-        "device"       : torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
-    })
+    try:
+        return jsonify({
+            "status": "ok",
+            "gpu": torch.cuda.is_available(),
+            "device": device_info()
+        }), 200
+    except Exception as e:
+        logger.exception("health failed: %s", e)
+        return json_error("Internal server error", 500)
 
-# ── Stylize ────────────────────────────────────────────────────
+
+@app.route("/api/login", methods=["POST"])
+@limiter.limit("10 per minute")
+def login():
+    try:
+        data = request.get_json(silent=True) or {}
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+
+        if not username or not password:
+            return json_error("username and password are required", 400)
+
+        record = USERS.get(username)
+        if not record:
+            return json_error("invalid credentials", 401)
+
+        if not bcrypt.checkpw(password.encode("utf-8"), record["password_hash"]):
+            return json_error("invalid credentials", 401)
+
+        token = create_token(username, record["role"])
+
+        return jsonify({
+            "message": "login successful",
+            "token": token,
+            "user": {
+                "username": username,
+                "role": record["role"]
+            }
+        }), 200
+
+    except Exception as e:
+        logger.exception("login failed: %s", e)
+        return json_error("Internal server error", 500)
+
+
+@app.route("/api/styles", methods=["GET"])
+def list_styles():
+    try:
+        return jsonify({
+            "presets": [{"id": s["id"], "name": s["name"]} for s in STYLE_PRESETS]
+        }), 200
+    except Exception as e:
+        logger.exception("list_styles failed: %s", e)
+        return json_error("Internal server error", 500)
+
+
+@app.route("/api/styles/<style_id>", methods=["GET"])
+def get_style(style_id):
+    try:
+        style_path = resolve_style_path(style_id)
+        return send_file(style_path)
+    except ValueError as e:
+        return json_error(str(e), 404)
+    except FileNotFoundError as e:
+        logger.warning("style file missing: %s", e)
+        return json_error(str(e), 404)
+    except Exception as e:
+        logger.exception("get_style failed: %s", e)
+        return json_error("Internal server error", 500)
+
+
+@app.route("/api/result/<filename>", methods=["GET"])
+def get_result(filename):
+    try:
+        return send_from_directory(RESULT_DIR, filename)
+    except Exception as e:
+        logger.exception("get_result failed: %s", e)
+        return json_error("File not found", 404)
+
+
+@app.route("/api/recommend", methods=["GET"])
+def recommend():
+    try:
+        scenario = (request.args.get("usecase") or "realtime").strip().lower()
+
+        rules = {
+            "realtime": {
+                "recommended_method": "realtime-fast",
+                "reason": "Fast NST is best for real-time previews and interactive use.",
+            },
+            "real-time": {
+                "recommended_method": "realtime-fast",
+                "reason": "Fast NST is best for real-time previews and interactive use.",
+            },
+            "quality": {
+                "recommended_method": "quality-opt",
+                "reason": "Optimization NST is better when output quality matters more than speed.",
+            },
+            "quality-first": {
+                "recommended_method": "quality-opt",
+                "reason": "Optimization NST is better when output quality matters more than speed.",
+            },
+            "batch": {
+                "recommended_method": "realtime-fast",
+                "reason": "Fast NST scales better for many images.",
+            },
+        }
+
+        chosen = rules.get(scenario, rules["realtime"])
+        return jsonify({
+            "scenario": scenario,
+            **chosen
+        }), 200
+
+    except Exception as e:
+        logger.exception("recommend failed: %s", e)
+        return json_error("Internal server error", 500)
+
+
 @app.route("/api/stylize", methods=["POST"])
 @token_required
 @limiter.limit("10 per minute")
 def stylize():
-    logger.info(f"Stylize request - method: {request.form.get('method', 'both')}")
-    if not NST_AVAILABLE:
-        return jsonify({"error": "NST not available on this server (Cloud Run CPU mode). Run locally on lab machine for full NST."}), 503
-
     try:
-        method   = request.form.get("method", "both")
-        img_size = int(request.form.get("img_size", 128))
-        iters    = int(request.form.get("iterations", 300))
-        run_id   = str(uuid.uuid4())[:8]
+        method = (request.form.get("method") or "fast").strip().lower()
+        img_size = int(request.form.get("imgsize", 512))
+        iterations = int(request.form.get("iterations", 300))
+        style_id = request.form.get("style_id")
 
-        if "content_image" not in request.files:
-            return jsonify({"error": "content_image required"}), 400
-        content_file = request.files["content_image"]
-        content_path = os.path.join(UPLOAD_DIR, f"{run_id}_content.jpg")
-        Image.open(content_file).convert("RGB").save(content_path)
+        if method not in {"fast", "optimization", "both"}:
+            return json_error("method must be fast, optimization, or both", 422)
 
-        if "style_image" in request.files:
-            style_file = request.files["style_image"]
-            style_path = os.path.join(UPLOAD_DIR, f"{run_id}_style.jpg")
-            Image.open(style_file).convert("RGB").save(style_path)
+        content_file = request.files.get("content_image") or request.files.get("content")
+        if not content_file:
+            return json_error("content image is required", 400)
+
+        run_id = uuid.uuid4().hex[:12]
+        content_path = UPLOAD_DIR / f"{run_id}_content.jpg"
+        save_rgb_image(content_file, content_path)
+
+        if request.files.get("style_image"):
+            style_path = UPLOAD_DIR / f"{run_id}_style.jpg"
+            save_rgb_image(request.files["style_image"], style_path)
+        elif style_id:
+            style_path = resolve_style_path(style_id)
         else:
-            style_path = STYLE_IMG
+            return json_error("style image or style_id is required", 400)
 
-        results = {"run_id": run_id, "method": method}
+        logger.info(
+            "stylize user=%s method=%s iterations=%s img_size=%s style_id=%s",
+            g.user["username"], method, iterations, img_size, style_id
+        )
 
-        if method in ("fast", "both"):
-            fast_out = os.path.join(RESULT_DIR, f"{run_id}_fast.jpg")
-            fast_metrics = run_fast_nst(
-                content_path   = content_path,
-                style_path     = style_path,
-                checkpoint     = os.path.join(CHECKPT_DIR, "fast_nst_epoch2.pth"),
-                extractor_ckpt = os.path.join(CHECKPT_DIR, "best_extractor.pth"),
-                output_path    = fast_out,
-                img_size       = img_size,
-            )
-            results["fast"] = {**fast_metrics, "result_url": f"/api/result/{run_id}_fast.jpg"}
+        response = {"run_id": run_id, "method": method}
 
-        if method in ("optimization", "both"):
-            opt_out = os.path.join(RESULT_DIR, f"{run_id}_opt.jpg")
-            opt_metrics = run_optimization_nst(
-                content_path = content_path,
-                style_path   = style_path,
-                checkpoint   = os.path.join(CHECKPT_DIR, "best_extractor.pth"),
-                output_path  = opt_out,
-                img_size     = img_size,
-                iterations   = iters,
-                save_every   = iters,
-            )
-            results["optimization"] = {**opt_metrics, "result_url": f"/api/result/{run_id}_opt.jpg"}
+        if method in {"fast", "both"}:
+            fast_output = RESULT_DIR / f"{run_id}_fast.jpg"
+            fast_result = run_fast_wrapper(content_path, style_path, fast_output, img_size)
+            response["fast"] = fast_result
 
-        if method == "both":
-            fast_ms = results["fast"]["runtime_ms"]
-            opt_ms  = results["optimization"]["runtime_ms"]
-            results["speedup"] = round(opt_ms / max(fast_ms, 0.1), 1)
+        if method in {"optimization", "both"}:
+            opt_output = RESULT_DIR / f"{run_id}_opt.jpg"
+            opt_result = run_opt_wrapper(content_path, style_path, opt_output, img_size, iterations)
+            response["optimization"] = opt_result
 
-        return jsonify(results)
+        if method == "fast":
+            return jsonify(response["fast"]), 200
 
+        if method == "optimization":
+            return jsonify(response["optimization"]), 200
+
+        fast_time = response["fast"]["time_seconds"]
+        opt_time = response["optimization"]["time_seconds"]
+        response["speedup"] = round(opt_time / max(fast_time, 0.001), 2)
+
+        return jsonify(response), 200
+
+    except ValueError as e:
+        logger.warning("stylize validation error: %s", e)
+        return json_error(str(e), 422)
+    except FileNotFoundError as e:
+        logger.warning("stylize file error: %s", e)
+        return json_error(str(e), 404)
     except Exception as e:
-        logger.error(f"Stylize error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("stylize failed: %s", e)
+        return json_error("Internal server error", 500)
 
-# ── Preset Styles ──────────────────────────────────────────────
-@app.route("/api/styles", methods=["GET"])
-def list_styles():
-    presets = [
-        {"id": "vangogh",  "name": "Van Gogh — Starry Night",  "file": "vangogh_style.jpg"},
-        {"id": "ghibli",   "name": "Ghibli — Studio Magic",    "file": "ghibl.jpg"},
-        {"id": "monalisa", "name": "Da Vinci — Mona Lisa",     "file": "Mona_Lisa.jpg"},
-        {"id": "abstract", "name": "Abstract",                 "file": "style.jpg"},
-        {"id": "vgtotoro", "name": "Van Gogh x Totoro",        "file": "Vincent van Gogh and My Neighbor Totoro.jpg"},
-    ]
-    return jsonify({"presets": presets})
 
-@app.route("/api/styles/<style_id>", methods=["GET"])
-def get_style_image(style_id):
-    presets = {
-        "vangogh":  "vangogh_style.jpg",
-        "ghibli":   "ghibl.jpg",
-        "monalisa": "Mona_Lisa.jpg",
-        "abstract": "style.jpg",
-        "vgtotoro": "Vincent van Gogh and My Neighbor Totoro.jpg",
-    }
-    if style_id not in presets:
-        return jsonify({"error": "Not found"}), 404
-    return send_file(os.path.join(PRESET_DIR, presets[style_id]), mimetype="image/jpeg")
-
-# ── Serve Result Image ─────────────────────────────────────────
-@app.route("/api/result/<filename>", methods=["GET"])
-def get_result(filename):
-    path = os.path.join(RESULT_DIR, filename)
-    if not os.path.exists(path):
-        return jsonify({"error": "Not found"}), 404
-    return send_file(path, mimetype="image/jpeg")
-
-# ── Benchmark ──────────────────────────────────────────────────
 @app.route("/api/benchmark", methods=["POST"])
 @token_required
+@limiter.limit("5 per minute")
 def benchmark():
-    if not NST_AVAILABLE:
-        return jsonify({"error": "NST not available on this server (Cloud Run CPU mode)."}), 503
     try:
-        resolutions = [int(r) for r in request.form.get("resolutions", "128,256").split(",")]
-        iters   = int(request.form.get("iterations", 100))
-        run_id  = str(uuid.uuid4())[:8]
-        results = []
+        img_size = int(request.form.get("imgsize", 512))
+        iterations = int(request.form.get("iterations", 300))
+        style_id = request.form.get("style_id")
 
-        content_file = request.files["content_image"]
-        content_path = os.path.join(UPLOAD_DIR, f"{run_id}_content.jpg")
-        Image.open(content_file).convert("RGB").save(content_path)
+        content_file = request.files.get("content_image") or request.files.get("content")
+        if not content_file:
+            return json_error("content image is required", 400)
 
-        style_path = STYLE_IMG
-        if "style_image" in request.files:
-            style_path = os.path.join(UPLOAD_DIR, f"{run_id}_style.jpg")
-            Image.open(request.files["style_image"]).convert("RGB").save(style_path)
+        run_id = uuid.uuid4().hex[:12]
+        content_path = UPLOAD_DIR / f"{run_id}_bench_content.jpg"
+        save_rgb_image(content_file, content_path)
 
-        for res in resolutions:
-            opt_out = os.path.join(RESULT_DIR, f"{run_id}_opt_{res}.jpg")
-            opt_m   = run_optimization_nst(
-                content_path=content_path, style_path=style_path,
-                checkpoint=os.path.join(CHECKPT_DIR, "best_extractor.pth"),
-                output_path=opt_out, img_size=res,
-                iterations=iters, save_every=iters,
-            )
-            fast_out = os.path.join(RESULT_DIR, f"{run_id}_fast_{res}.jpg")
-            fast_m   = run_fast_nst(
-                content_path=content_path, style_path=style_path,
-                checkpoint=os.path.join(CHECKPT_DIR, "fast_nst_epoch2.pth"),
-                extractor_ckpt=os.path.join(CHECKPT_DIR, "best_extractor.pth"),
-                output_path=fast_out, img_size=res,
-            )
-            results.append({
-                "resolution"     : res,
-                "opt_runtime_ms" : opt_m["runtime_ms"],
-                "fast_runtime_ms": fast_m["runtime_ms"],
-                "speedup"        : round(opt_m["runtime_ms"] / max(fast_m["runtime_ms"], 0.1), 1),
-                "opt_style_loss" : opt_m["style_loss"],
-                "fast_style_loss": fast_m["style_loss"],
-            })
+        if request.files.get("style_image"):
+            style_path = UPLOAD_DIR / f"{run_id}_bench_style.jpg"
+            save_rgb_image(request.files["style_image"], style_path)
+        elif style_id:
+            style_path = resolve_style_path(style_id)
+        else:
+            return json_error("style image or style_id is required", 400)
 
-        return jsonify({"run_id": run_id, "benchmark": results})
+        fast_output = RESULT_DIR / f"{run_id}_bench_fast.jpg"
+        opt_output = RESULT_DIR / f"{run_id}_bench_opt.jpg"
 
+        fast_result = run_fast_wrapper(content_path, style_path, fast_output, img_size)
+        opt_result = run_opt_wrapper(content_path, style_path, opt_output, img_size, iterations)
+
+        fast_metrics = fast_result.get("metrics", {})
+        opt_metrics = opt_result.get("metrics", {})
+
+        payload = {
+            "run_id": run_id,
+            "fast_time_seconds": fast_result["time_seconds"],
+            "optimization_time_seconds": opt_result["time_seconds"],
+            "speedup": round(
+                opt_result["time_seconds"] / max(fast_result["time_seconds"], 0.001),
+                2
+            ),
+            "fast_loss": fast_metrics.get("loss") or fast_metrics.get("final_loss"),
+            "optimization_loss": opt_metrics.get("loss") or opt_metrics.get("final_loss"),
+            "fast_output_url": fast_result["output_url"],
+            "optimization_output_url": opt_result["output_url"],
+        }
+
+        return jsonify(payload), 200
+
+    except ValueError as e:
+        logger.warning("benchmark validation error: %s", e)
+        return json_error(str(e), 422)
+    except FileNotFoundError as e:
+        logger.warning("benchmark file error: %s", e)
+        return json_error(str(e), 404)
     except Exception as e:
-        logger.error(f"Benchmark error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("benchmark failed: %s", e)
+        return json_error("Internal server error", 500)
 
-# ── Recommend ──────────────────────────────────────────────────
-@app.route("/api/recommend", methods=["GET"])
-def recommend():
-    use_case    = request.args.get("use_case", "realtime")
-    max_time_ms = int(request.args.get("max_time_ms", 500))
-    quality     = request.args.get("quality", "medium")
-
-    if use_case == "realtime" or max_time_ms < 500:
-        method   = "fast"
-        reason   = "Fast NST delivers results in ~160ms — ideal for real-time filters and mobile apps."
-        tradeoff = "Slightly lower style fidelity vs optimization NST."
-    elif use_case == "quality" or quality == "high":
-        method   = "optimization"
-        reason   = "Optimization NST produces highest quality by iteratively refining the image."
-        tradeoff = "Slower (~3s for 300 iterations at 256x256)."
-    elif use_case == "batch":
-        method   = "fast"
-        reason   = "Fast NST processes large batches efficiently with consistent quality."
-        tradeoff = "Style is fixed to trained style; less flexible than optimization NST."
-    else:
-        method   = "fast"
-        reason   = "Fast NST is recommended as a balanced default for most use cases."
-        tradeoff = "For maximum quality, switch to optimization NST."
-
-    return jsonify({
-        "recommended_method": method,
-        "reason"            : reason,
-        "tradeoff"          : tradeoff,
-        "benchmarks"        : {"fast_avg_ms": 160, "opt_avg_ms": 3086, "speedup": "~19x"}
-    })
 
 if __name__ == "__main__":
-    print("\n  StyleSense Backend API")
-    print("  NST Available:", NST_AVAILABLE)
-    print("  GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
-    print("  Starting server on http://localhost:5000\n")
-    app.run(debug=False, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    logger.info("Starting StyleSense backend on port %s", PORT)
+    app.run(host="0.0.0.0", port=PORT, debug=False)
