@@ -2,20 +2,20 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
+    gcc libglib2.0-0 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
+# CPU-only torch — Cloud Run pe GPU nahi, 2GB bacha lo
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# requirements copy karo (root se, backend/ prefix nahi)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# sirf backend code copy karo
 COPY . .
-
-# Non-root user for security
-RUN useradd -m appuser && chown -R appuser /app
-USER appuser
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120", "app:app"]

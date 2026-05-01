@@ -10,11 +10,10 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: t59-nst-backend
   REGION: us-central1
-  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/t59-nst-backend
 
 jobs:
 
-  # ── Job 1: Run Tests ──────────────────────────────
+  # ── Job 1: Run Tests ──────────────────────────────────────
   test:
     name: Run Backend Tests
     runs-on: ubuntu-latest
@@ -37,7 +36,7 @@ jobs:
           cd backend
           pytest tests/test_api.py -v
 
-  # ── Job 2: Deploy Backend to Cloud Run ────────────
+  # ── Job 2: Deploy Backend to Cloud Run ────────────────────
   deploy-backend:
     name: Deploy to Google Cloud Run
     needs: test
@@ -55,22 +54,27 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Build Docker image
         run: |
-          docker build -t $IMAGE:$GITHUB_SHA -t $IMAGE:latest ./backend
+          PROJECT=$(echo "${{ secrets.GCP_PROJECT_ID }}" | tr '[:upper:]' '[:lower:]')
+          SHA=$(echo "$GITHUB_SHA" | tr '[:upper:]' '[:lower:]')
+          IMAGE="us-central1-docker.pkg.dev/${PROJECT}/t59-backend/t59-nst-backend"
+          echo "IMAGE_TAG=${IMAGE}:${SHA}" >> $GITHUB_ENV
+          echo "IMAGE_LATEST=${IMAGE}:latest" >> $GITHUB_ENV
+          docker build -t ${IMAGE}:${SHA} -t ${IMAGE}:latest -f backend/Dockerfile .
 
       - name: Push Docker image
         run: |
-          docker push $IMAGE:$GITHUB_SHA
-          docker push $IMAGE:latest
+          docker push ${{ env.IMAGE_TAG }}
+          docker push ${{ env.IMAGE_LATEST }}
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image $IMAGE:$GITHUB_SHA \
+            --image ${{ env.IMAGE_TAG }} \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \
@@ -87,7 +91,7 @@ jobs:
             --region $REGION \
             --format 'value(status.url)'
 
-  # ── Job 3: Deploy Frontend to Vercel ──────────────
+  # ── Job 3: Deploy Frontend to Vercel ──────────────────────
   deploy-frontend:
     name: Deploy Frontend to Vercel
     needs: test
@@ -98,10 +102,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: ./frontend
-          vercel-args: '--prod'
+        run: |
+          npm i -g vercel@latest
+          cd frontend
+          vercel --token=${{ secrets.VERCEL_TOKEN }} --yes --prod
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
