@@ -38,4 +38,7 @@ Thumbs.db
 # datasets/
 # outputs/
 frontend/node_modules/
-frontend/package-lock.jsonoutputs/api_results/*.jpg
+frontend/package-lock.json
+outputs/api_results/
+outputs/uploads/
+outputs/comparison/*.jpg

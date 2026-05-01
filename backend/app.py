@@ -1,11 +1,5 @@
 """
 Backend API — StyleSense NST
-Owner: Shubhansh Gupta
-Endpoints:
-  GET  /api/health
-  POST /api/stylize
-  POST /api/benchmark
-  GET  /api/recommend
 """
 
 import os, sys, time, uuid, json
@@ -14,6 +8,9 @@ from flask_cors import CORS
 from PIL import Image
 import torch
 import io
+import jwt
+from datetime import datetime, timedelta
+from functools import wraps
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../src/extractor"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../src/nst_optimization"))
@@ -23,6 +20,7 @@ from optimizer_nst   import run_optimization_nst
 from inference       import run_fast_nst
 from load_checkpoint import load_extractor
 
+# ── App Init ──────────────────────────────────────────────────
 app  = Flask(__name__)
 CORS(app)
 
@@ -30,10 +28,62 @@ UPLOAD_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/uploads")
 RESULT_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/api_results")
 CHECKPT_DIR = os.path.join(os.path.dirname(__file__), "../checkpoints")
 STYLE_IMG   = os.path.join(os.path.dirname(__file__), "../outputs/test_imgs/vangogh_style.jpg")
+PRESET_DIR  = os.path.join(os.path.dirname(__file__), "../outputs/test_imgs")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
+# ── JWT Auth ───────────────────────────────────────────────────
+SECRET_KEY = "stylesense_t59_secret"
+
+USERS = {
+    "user": {"password": "user123", "role": "user"},
+    "dev":  {"password": "dev123",  "role": "developer"},
+}
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({"error": "Token missing"}), 401
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            request.user_role = data['role']
+        except:
+            return jsonify({"error": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+def dev_only(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            if data['role'] != 'developer':
+                return jsonify({"error": "Developer only"}), 403
+            request.user_role = data['role']
+        except:
+            return jsonify({"error": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# ── Login ──────────────────────────────────────────────────────
+@app.route("/api/login", methods=["POST"])
+def login():
+    data     = request.get_json()
+    username = data.get("username", "")
+    password = data.get("password", "")
+    user     = USERS.get(username)
+    if not user or user["password"] != password:
+        return jsonify({"error": "Invalid credentials"}), 401
+    token = jwt.encode({
+        "username": username,
+        "role":     user["role"],
+        "exp":      datetime.utcnow() + timedelta(hours=8)
+    }, SECRET_KEY, algorithm="HS256")
+    return jsonify({"token": token, "role": user["role"], "username": username})
 
 # ── Health ────────────────────────────────────────────────────
 @app.route("/api/health", methods=["GET"])
@@ -59,7 +109,7 @@ def stylize():
     """
     try:
         method   = request.form.get("method", "both")
-        img_size = int(request.form.get("img_size", 256))
+        img_size = int(request.form.get("img_size", 128))
         iters    = int(request.form.get("iterations", 300))
         run_id   = str(uuid.uuid4())[:8]
 
@@ -124,6 +174,34 @@ def stylize():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Preset Styles ──────────────────────────────────────────
+PRESET_DIR = os.path.join(os.path.dirname(__file__), "../outputs/test_imgs")
+
+@app.route("/api/styles", methods=["GET"])
+def list_styles():
+    presets = [
+        {"id": "vangogh",  "name": "Van Gogh — Starry Night",     "file": "vangogh_style.jpg"},
+        {"id": "ghibli",   "name": "Ghibli — Studio Magic",       "file": "ghibl.jpg"},
+        {"id": "monalisa", "name": "Da Vinci — Mona Lisa",        "file": "Mona_Lisa.jpg"},
+        {"id": "abstract", "name": "Abstract",                    "file": "style.jpg"},
+        {"id": "vgtotoro", "name": "Van Gogh x Totoro",           "file": "Vincent van Gogh and My Neighbor Totoro.jpg"},
+    ]
+    return jsonify({"presets": presets})
+
+@app.route("/api/styles/<style_id>", methods=["GET"])
+def get_style_image(style_id):
+    presets = {
+        "vangogh":  "vangogh_style.jpg",
+        "ghibli":   "ghibl.jpg",
+        "monalisa": "Mona_Lisa.jpg",
+        "abstract": "style.jpg",
+        "vgtotoro": "Vincent van Gogh and My Neighbor Totoro.jpg",
+    }
+    if style_id not in presets:
+        return jsonify({"error": "Not found"}), 404
+    return send_file(os.path.join(PRESET_DIR, presets[style_id]), mimetype="image/jpeg")
 
 
 # ── Serve Result Image ────────────────────────────────────────
