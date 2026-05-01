@@ -15,13 +15,19 @@ import jwt
 from datetime import datetime, timedelta
 from functools import wraps
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "../src/extractor"))
-sys.path.append(os.path.join(os.path.dirname(__file__), "../src/nst_optimization"))
-sys.path.append(os.path.join(os.path.dirname(__file__), "../src/nst_fast"))
+import os, sys
 
-from optimizer_nst   import run_optimization_nst
-from inference       import run_fast_nst
-from load_checkpoint import load_extractor
+# Local dev (lab machine) ke liye src paths
+_base = os.path.dirname(__file__)
+_src = os.path.join(_base, '..', 'src')
+if os.path.exists(_src):
+    sys.path.append(os.path.join(_src, 'extractor'))
+    sys.path.append(os.path.join(_src, 'nst_optimization'))
+    sys.path.append(os.path.join(_src, 'nst_fast'))
+    sys.path.append(_src)
+from nst_optimization.optimizer_nst import run_optimization_nst
+from nst_fast.inference import run_fast_nst
+from extractor.load_checkpoint import load_extractor
 
 # ── App Init ──────────────────────────────────────────────────
 app  = Flask(__name__)
@@ -33,10 +39,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── CORS (lock to frontend domain) ───────────────────
-CORS(app, origins=[
-    "http://localhost:3000",
-    os.getenv("FRONTEND_URL", "http://localhost:3000")
-])
+# CORS(app, origins=[
+#     "http://localhost:3000",
+#     os.getenv("FRONTEND_URL", "http://localhost:3000")
+# ])
+from flask_cors import CORS
+CORS(app, origins=["https://t59-comparative-analysis-of-optimiz.vercel.app"])
 
 # ── Rate Limiting ─────────────────────────────────────
 limiter = Limiter(
