@@ -62,7 +62,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t $IMAGE:$GITHUB_SHA -t $IMAGE:latest ./backend
+          docker build -t $IMAGE:$GITHUB_SHA -t $IMAGE:latest -f backend/Dockerfile .
 
       - name: Push Docker image
         run: |
