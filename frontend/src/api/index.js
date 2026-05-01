@@ -1,6 +1,7 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 
-const BASE = 'http://localhost:5000/api';
+// const BASE = 'http://localhost:5000/api';
+const BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000') + '/api';
 
 export const checkHealth = () => axios.get(BASE + '/health');
 
